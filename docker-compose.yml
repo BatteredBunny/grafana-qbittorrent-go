@@ -1,0 +1,17 @@
+version: "3.7"
+
+services:
+  grafana-qbittorrent:
+    container_name: grafana-qbittorrent
+    image: ayay2021/grafana-qbittorrent
+    build: ./
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - UMASK=002
+      - TZ=Etc/UTC
+    volumes:
+      - ./config.toml:/app/config.toml
+    depends_on:
+      - db
+    restart: unless-stopped

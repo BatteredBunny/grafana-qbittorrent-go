@@ -1,0 +1,6 @@
+db_connection_string = "host=localhost port=5432 user=postgres password=123 database=torrent sslmode=disable"
+
+[qbittorrent]
+address = "http://localhost:8080"
+username = "admin"
+password = "123"
