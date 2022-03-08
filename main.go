@@ -26,18 +26,12 @@ type GeoLocateResponse struct {
 }
 
 type Config struct {
-	DBConnectionString string      `toml:"db_connection_string"`
-	QBittorrent        qBittorrent `toml:"qbittorrent"`
-}
-
-type qBittorrent struct {
-	Address  string `toml:"address"`
-	Username string `toml:"username"`
-	Password string `toml:"password"`
-
-	Ips     []string
-	Cookies []*http.Cookie
-	Client  *http.Client
+	DBConnectionString string `toml:"db_connection_string"`
+	Torrent            struct {
+		Address  string `toml:"address"`
+		Username string `toml:"username"`
+		Password string `toml:"password"`
+	} `toml:"qbittorrent"`
 }
 
 func main() {
@@ -45,32 +39,36 @@ func main() {
 	flag.StringVar(&configLocation, "c", "config.toml", "Location of config file")
 	flag.Parse()
 
-	config := initializeConfig(configLocation)
+	config, err := initializeConfig(configLocation)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	qBittorrent, err := initializeQbittorrent(&config)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	db, err := config.connectDB()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	if err = config.QBittorrent.login(); err != nil {
-		log.Fatal("Failed to connect to qbittorrent:", err)
-	}
-
 	for {
-		torrents, err := config.QBittorrent.info()
+		torrents, err := qBittorrent.info()
 		if err != nil {
 			log.Println(err)
 			continue
 		}
 
 		for _, v := range torrents {
-			if err = config.QBittorrent.peers(&v); err != nil {
+			if err = qBittorrent.peers(&v); err != nil {
 				log.Println(err)
 				continue
 			}
 		}
 
-		config.QBittorrent.sendToDB(db)
+		qBittorrent.sendToDB(db)
 	}
 }
 
@@ -146,30 +144,26 @@ func (config Config) connectDB() (db *sql.DB, err error) {
 	return
 }
 
-func initializeConfig(configLocation string) (config Config) {
+func initializeConfig(configLocation string) (config Config, err error) {
 	log.Println("Starting to read config")
 	rawConfig, err := os.ReadFile(configLocation)
 	if err != nil {
-		log.Fatal(err)
+		return
 	}
 
-	config = Config{
-		QBittorrent: qBittorrent{
-			Client: &http.Client{},
-		},
-	}
+	config = Config{}
 
-	if err := toml.Unmarshal(rawConfig, &config); err != nil {
-		log.Fatal(err)
+	if err = toml.Unmarshal(rawConfig, &config); err != nil {
+		return
 	}
 
 	if config.DBConnectionString == "" {
 		log.Fatal("No postgres connection string provided")
-	} else if config.QBittorrent.Address == "" {
+	} else if config.Torrent.Address == "" {
 		log.Fatal("No qBittorrent address provided")
-	} else if config.QBittorrent.Password == "" {
+	} else if config.Torrent.Password == "" {
 		log.Fatal("No qBittorrent password provided")
-	} else if config.QBittorrent.Username == "" {
+	} else if config.Torrent.Username == "" {
 		log.Fatal("No qBittorrent username provided")
 	}
 

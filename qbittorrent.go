@@ -5,12 +5,15 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 )
 
-func AddCookies(request *http.Request, cookies []*http.Cookie) {
-	for _, v := range cookies {
-		request.AddCookie(v)
-	}
+type qBittorrent struct {
+	Ips          []string
+	Client       *http.Client
+	loginRequest *http.Request
+	infoRequest  *http.Request
+	peersRequest *http.Request
 }
 
 type Torrent struct {
@@ -23,33 +26,23 @@ type PeerRequest struct {
 	} `json:"peers"`
 }
 
-func (qBittorrent *qBittorrent) login() (err error) {
+func (qBittorrent *qBittorrent) login() (cookies []*http.Cookie, err error) {
 	log.Println("Logging into qbittorrent")
-	loginRequest, err := http.NewRequest("GET", qBittorrent.Address+"/api/v2/auth/login?username="+qBittorrent.Username+"&password="+qBittorrent.Password, nil)
+	res, err := qBittorrent.Client.Do(qBittorrent.loginRequest)
 	if err != nil {
 		return
 	}
 
-	AddCookies(loginRequest, qBittorrent.Cookies)
-
-	res, err := qBittorrent.Client.Do(loginRequest)
-	if err != nil {
-		return
-	}
-
-	qBittorrent.Cookies = res.Cookies()
-	return
+	return res.Cookies(), nil
 }
 
 func (qBittorrent *qBittorrent) peers(torrent *Torrent) (err error) {
-	peersRequest, err := http.NewRequest("GET", qBittorrent.Address+"/api/v2/sync/torrentPeers?hash="+torrent.Hash, nil)
+	qBittorrent.peersRequest.URL, err = url.Parse(qBittorrent.peersRequest.URL.Scheme + "://" + qBittorrent.peersRequest.URL.Host + "/api/v2/sync/torrentPeers?hash=" + torrent.Hash)
 	if err != nil {
 		return
 	}
 
-	AddCookies(peersRequest, qBittorrent.Cookies)
-
-	res, err := qBittorrent.Client.Do(peersRequest)
+	res, err := qBittorrent.Client.Do(qBittorrent.peersRequest)
 	if err != nil {
 		return
 	}
@@ -73,14 +66,7 @@ func (qBittorrent *qBittorrent) peers(torrent *Torrent) (err error) {
 
 func (qBittorrent *qBittorrent) info() (torrents []Torrent, err error) {
 	log.Println("Querying torrents info from qbittorrent")
-	infoRequest, err := http.NewRequest("GET", qBittorrent.Address+"/api/v2/torrents/info", nil)
-	if err != nil {
-		return
-	}
-
-	AddCookies(infoRequest, qBittorrent.Cookies)
-
-	res, err := qBittorrent.Client.Do(infoRequest)
+	res, err := qBittorrent.Client.Do(qBittorrent.infoRequest)
 	if err != nil {
 		return
 	}
@@ -93,4 +79,42 @@ func (qBittorrent *qBittorrent) info() (torrents []Torrent, err error) {
 	err = json.Unmarshal(data, &torrents)
 
 	return
+}
+
+func initializeQbittorrent(config *Config) (QBittorrent *qBittorrent, err error) {
+	QBittorrent = &qBittorrent{
+		Client: &http.Client{},
+	}
+
+	QBittorrent.loginRequest, err = http.NewRequest("GET", config.Torrent.Address+"/api/v2/auth/login?username="+config.Torrent.Username+"&password="+config.Torrent.Password, nil)
+	if err != nil {
+		return
+	}
+
+	QBittorrent.infoRequest, err = http.NewRequest("GET", config.Torrent.Address+"/api/v2/torrents/info", nil)
+	if err != nil {
+		return
+	}
+
+	QBittorrent.peersRequest, err = http.NewRequest("GET", config.Torrent.Address, nil)
+	if err != nil {
+		return
+	}
+
+	cookies, err := QBittorrent.login()
+	if err != nil {
+		return
+	}
+
+	AddCookies(QBittorrent.loginRequest, cookies)
+	AddCookies(QBittorrent.infoRequest, cookies)
+	AddCookies(QBittorrent.peersRequest, cookies)
+
+	return
+}
+
+func AddCookies(request *http.Request, cookies []*http.Cookie) {
+	for _, v := range cookies {
+		request.AddCookie(v)
+	}
 }
